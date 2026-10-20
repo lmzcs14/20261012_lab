@@ -48,12 +48,16 @@ def parse_args(argv=None):
     p.add_argument('--patience', type=int, default=10, help='val evaluations without improvement before LR drop/stop')
     p.add_argument('--min-delta', type=float, default=0.01, help='relative val improvement that resets patience')
     p.add_argument('--max-lr-drops', type=int, default=2, help='MedSapiens drops LR twice (x0.1 each)')
-    p.add_argument('--batch-size', type=int, default=8, help='MedSapiens: 4 GPUs x 2')
+    p.add_argument('--batch-size', type=int, default=8, help='images per forward pass (MedSapiens: 2 per GPU)')
+    p.add_argument('--accum-steps', type=int, default=1,
+                   help='gradient accumulation; MedSapiens = --batch-size 2 --accum-steps 4 (4 GPUs x 2, BN sees 2)')
     p.add_argument('--lr', type=float, default=5e-4)
     p.add_argument('--weight-decay', type=float, default=0.1)
     p.add_argument('--layer-decay', type=float, default=0.85)
     p.add_argument('--warmup-epochs', type=float, default=3,
                    help='linear warmup length; MedSapiens used 500 iters, i.e. ~15 epochs on our 270 teeth')
+    p.add_argument('--warmup-iters', type=int, default=500,
+                   help='warmup length in optimizer steps, as MedSapiens; 0 = use --warmup-epochs instead')
     p.add_argument('--clip-grad', type=float, default=1.0)
     p.add_argument('--val-every', type=int, default=1, help='epochs between val evaluations')
     p.add_argument('--workers', type=int, default=6)
@@ -102,7 +106,8 @@ def main(argv=None):
     opt = torch.optim.AdamW(param_groups(model, args.lr, args.weight_decay, args.layer_decay),
                             lr=args.lr, betas=(0.9, 0.999))
 
-    warmup_iters = max(1, round(args.warmup_epochs * len(loader)))
+    steps_per_epoch = math.ceil(len(loader) / args.accum_steps)  # optimizer steps ("iters" in the logs)
+    warmup_iters = args.warmup_iters or max(1, round(args.warmup_epochs * steps_per_epoch))
     lr_scale = 1.0  # plateau schedule: multiplied by 0.1 on each drop
 
     def lr_factor(it, epoch):
@@ -118,17 +123,22 @@ def main(argv=None):
     t0 = time.time()
     for epoch in range(args.epochs):
         model.train()
-        for batch in loader:
-            f = lr_factor(it, epoch)
-            for g in opt.param_groups:
-                g['lr'] = g['initial_lr'] * f
+        opt.zero_grad(set_to_none=True)
+        for b, batch in enumerate(loader):
             with torch.autocast('cuda', dtype=torch.bfloat16):
                 pred = model(batch['img'].to(dev, non_blocking=True))
             loss = heatmap_loss(pred.float(), batch['heatmaps'].to(dev), batch['weights'].to(dev))
-            opt.zero_grad(set_to_none=True)
-            loss.backward()
+            # average over the micro-batches of this optimizer step (the epoch's last group may be shorter)
+            group_start = b - b % args.accum_steps
+            (loss / min(args.accum_steps, len(loader) - group_start)).backward()
+            if (b + 1) % args.accum_steps and b + 1 < len(loader):
+                continue
+            f = lr_factor(it, epoch)
+            for g in opt.param_groups:
+                g['lr'] = g['initial_lr'] * f
             torch.nn.utils.clip_grad_norm_([p for p in model.parameters() if p.requires_grad], args.clip_grad)
             opt.step()
+            opt.zero_grad(set_to_none=True)
             it += 1
             if it % 50 == 0:
                 rec = dict(epoch=epoch, iter=it, loss=loss.item(), lr=args.lr * f,

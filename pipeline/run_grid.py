@@ -13,6 +13,7 @@ capped at MedSapiens' 210 epochs.
 Examples:
   conda run -n tooth python -m pipeline.run_grid --dry-run
   conda run -n tooth python -m pipeline.run_grid --folds 0 1 2 3          # expand to full CV
+  conda run -n tooth python -m pipeline.run_grid --input-size 768 1024    # MedSapiens' image size -> runs_768x1024/
   conda run -n tooth python -m pipeline.run_grid --backbones sapiens2_0.4b --setups public --folds 0
   conda run -n tooth python -m pipeline.run_grid -- --epochs 20      # args after -- go to every train run
 """
@@ -23,7 +24,9 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SPLITS = os.path.join(ROOT, 'data', 'splits')
-RUNS = os.path.join(ROOT, 'runs')  # overridden by --runs-dir
+RUNS = os.path.join(ROOT, 'runs')  # overridden by --runs-dir / --input-size
+DEFAULT_INPUT_SIZE = [384, 512]  # W H, same default as pipeline.train
+INPUT_SIZE = []  # extra train args set from --input-size
 
 
 def schedule(max_epochs):
@@ -42,7 +45,7 @@ def stage1(bb, setup, fold):
         out, d, prefix = os.path.join(RUNS, bb, 's1_public_ours', f'fold{fold}'), f'fold{fold}', 'stage1_public_ours'
     args = ['--backbone', bb, '--out', out, '--init', 'pretrained',
             '--train-ann', os.path.join(SPLITS, d, f'{prefix}_train.json'),
-            '--val-ann', os.path.join(SPLITS, d, f'{prefix}_val.json')] + S1_SCHEDULE
+            '--val-ann', os.path.join(SPLITS, d, f'{prefix}_val.json')] + S1_SCHEDULE + INPUT_SIZE
     return out, args
 
 
@@ -52,7 +55,7 @@ def stage2(bb, setup, fold):
     args = ['--backbone', bb, '--out', out,
             '--train-ann', os.path.join(d, 'stage2_dental_train.json'),
             '--val-ann', os.path.join(d, 'stage2_dental_val.json'),
-            '--test-ann', os.path.join(d, 'stage2_dental_test.json')] + S2_SCHEDULE
+            '--test-ann', os.path.join(d, 'stage2_dental_test.json')] + S2_SCHEDULE + INPUT_SIZE
     if setup == 'none':
         args += ['--init', 'pretrained']
     else:
@@ -86,10 +89,16 @@ def main():
     p.add_argument('--folds', nargs='+', type=int, default=[0], help='fold 0 only until a setup shows a gain')
     p.add_argument('--s1-epochs', type=int, default=210, help='cap; early stopping usually ends sooner')
     p.add_argument('--s2-epochs', type=int, default=210, help='cap; early stopping usually ends sooner')
-    p.add_argument('--runs-dir', default=RUNS, help='use a separate dir for quick/debug grids')
+    p.add_argument('--input-size', type=int, nargs=2, default=DEFAULT_INPUT_SIZE, metavar=('W', 'H'),
+                   help='network input size for every run; MedSapiens used 768 1024')
+    p.add_argument('--runs-dir', default=None,
+                   help='default: runs/ at the default size, runs_<W>x<H>/ otherwise (keeps sizes apart)')
     p.add_argument('--dry-run', action='store_true')
     args = p.parse_args(argv)
-    globals()['RUNS'] = os.path.abspath(args.runs_dir)
+    w, h = args.input_size
+    default_dir = RUNS if args.input_size == DEFAULT_INPUT_SIZE else f'{RUNS}_{w}x{h}'
+    globals()['RUNS'] = os.path.abspath(args.runs_dir or default_dir)
+    globals()['INPUT_SIZE'] = ['--input-size', str(w), str(h)]
     globals()['S1_SCHEDULE'] = schedule(args.s1_epochs)
     globals()['S2_SCHEDULE'] = schedule(args.s2_epochs)
 

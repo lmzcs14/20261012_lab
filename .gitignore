@@ -6,6 +6,7 @@ data/
 checkpoints/
 third_party/
 runs/
+runs_*/
 *.pdf
 
 __pycache__/

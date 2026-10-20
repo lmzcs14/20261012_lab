@@ -35,9 +35,9 @@ Currently run on fold 0 only (expand to folds 0-3 once a setup shows a gain). St
   Same recipe: LoRA r4 on q/k/v, r8 on attn proj, deconv heatmap head, UDP heatmaps + DARK decoding, MSE,
   AdamW 5e-4, layer decay 0.85, batch 8, flip test.
 - Input 512x384 instead of 1024x768 (8 GB GPU; tooth crops are only ~250-400 px tall). Heatmap sigma 2.
+  `run_grid --input-size 768 1024` trains at MedSapiens' size; results go to `runs_768x1024/`.
 - Schedule: instead of fixed LR steps at epochs 170/200 of 210, LR x0.1 when val error stalls for 10 epochs
   (<1% gain), at most twice (same two drops as MedSapiens), then early stop; 210 epochs is only a cap.
-  Warmup is 3 epochs instead of 500 iterations (500 iters = ~15 epochs on our ~270 teeth).
 - Horizontal flip swaps left/right tooth keypoints (MedSapiens' configs never swap).
 - Sapiens2 has separate wq/wk/wv, so it gets three rank-4 adapters where v1 has one on fused qkv.
 

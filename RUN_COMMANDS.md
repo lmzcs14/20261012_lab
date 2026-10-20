@@ -45,6 +45,16 @@ python -m pipeline.run_grid --backbones sapiens1_0.3b --setups public 2>&1 | tee
 python -m pipeline.run_grid --backbones sapiens1_0.3b --setups public_ours 2>&1 | tee runs/6_s1_B_public_ours.log
 ```
 
+## Training at MedSapiens' image size (768x1024)
+Add `--input-size 768 1024` to any command; results go to `runs_768x1024/` (kept apart from `runs/`), e.g. mode C:
+```bash
+mkdir -p runs_768x1024
+python -m pipeline.run_grid --input-size 768 1024 --backbones sapiens2_0.4b --setups public 2>&1 | tee runs_768x1024/C.log
+```
+Plots / table for these: add `--runs-dir runs_768x1024` to `pipeline.plot` / `pipeline.summarize`.
+Each epoch costs roughly 4-5x more. Batch 8 at this size needs ~10 GB (estimate); on the 8 GB card add
+`-- --batch-size 2 --accum-steps 4` (same effective batch of 8).
+
 ## Checking progress and results (any time, from another terminal)
 ```bash
 python -m pipeline.run_grid --dry-run       # which runs are done / todo
