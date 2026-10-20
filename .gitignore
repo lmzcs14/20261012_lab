@@ -1,0 +1,12 @@
+# private clinical data: copy it in by hand, never commit it
+pkl20260405-002/
+
+# downloaded or generated (see SETUP.md)
+data/
+checkpoints/
+third_party/
+runs/
+*.pdf
+
+__pycache__/
+*.pyc
